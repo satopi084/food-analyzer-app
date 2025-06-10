@@ -1,0 +1,9 @@
+name = "food-analyzer-app"
+compatibility_date = "2024-03-01"
+
+[env.production.vars]
+# Environment variables will be set in Cloudflare Pages dashboard
+# REACT_APP_GEMINI_API_KEY = "your_api_key_here"
+
+[[env.production.pages_build_output_dir]]
+directory = "build"
