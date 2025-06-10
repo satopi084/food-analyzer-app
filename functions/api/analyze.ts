@@ -1,4 +1,16 @@
-import { NutritionData } from '../App';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+export interface NutritionData {
+  foodName: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+  sugar: number;
+  sodium: number;
+  advice: string;
+}
 
 export interface HaikuData {
   haiku: string[];
@@ -8,60 +20,49 @@ export interface HaikuData {
 
 export type AnalysisResult = NutritionData | HaikuData;
 
-const isProduction = process.env.NODE_ENV === 'production';
+export const onRequestPost: PagesFunction<Env> = async (context) => {
+  const { request, env } = context;
 
-export const analyzeImage = async (imageFile: File): Promise<AnalysisResult> => {
+  // CORS設定
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+
+  // OPTIONS preflight request
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
   try {
-    let apiUrl: string;
+    const API_KEY = env.GEMINI_API_KEY;
+    if (!API_KEY) {
+      return new Response(
+        JSON.stringify({ error: 'Gemini API key not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const formData = await request.formData();
+    const imageFile = formData.get('image') as File;
     
-    if (isProduction) {
-      // 本番環境（Cloudflare Pages）ではサーバーレス関数を使用
-      apiUrl = '/api/analyze';
-    } else {
-      // 開発環境では直接Gemini APIを呼び出し
-      return await analyzeImageDirect(imageFile);
+    if (!imageFile) {
+      return new Response(
+        JSON.stringify({ error: 'No image file provided' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    const formData = new FormData();
-    formData.append('image', imageFile);
+    const genAI = new GoogleGenerativeAI(API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      body: formData,
-    });
+    // Convert file to base64
+    const arrayBuffer = await imageFile.arrayBuffer();
+    const base64Data = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'API request failed');
-    }
-
-    const result = await response.json();
-    return result as AnalysisResult;
-
-  } catch (error) {
-    console.error('API Error:', error);
-    throw new Error('画像の分析に失敗しました。API設定を確認してください。');
-  }
-};
-
-// 開発環境用の直接API呼び出し関数
-const analyzeImageDirect = async (imageFile: File): Promise<AnalysisResult> => {
-  // 開発環境でのみ動的インポート
-  const { GoogleGenerativeAI } = await import('@google/generative-ai');
-  
-  const API_KEY = process.env.REACT_APP_GEMINI_API_KEY;
-
-  if (!API_KEY) {
-    throw new Error('Gemini API key is not configured');
-  }
-
-  const genAI = new GoogleGenerativeAI(API_KEY);
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-  
-  const base64Data = await convertFileToBase64(imageFile);
-  
-  // First, check if the image contains food
-  const classificationPrompt = `この画像を分析して、食べ物（料理、食材、飲み物など）が写っているかどうかを判定してください。
+    // First, check if the image contains food
+    const classificationPrompt = `この画像を分析して、食べ物（料理、食材、飲み物など）が写っているかどうかを判定してください。
 
 以下のJSON形式で回答してください：
 {
@@ -77,44 +78,53 @@ const analyzeImageDirect = async (imageFile: File): Promise<AnalysisResult> => {
 - 人物、動物、風景、建物、物品など食べられないもの
 - 食器だけで食べ物が写っていない場合`;
 
-  const classificationResult = await model.generateContent([
-    classificationPrompt,
-    {
-      inlineData: {
-        data: base64Data,
-        mimeType: imageFile.type,
+    const classificationResult = await model.generateContent([
+      classificationPrompt,
+      {
+        inlineData: {
+          data: base64Data,
+          mimeType: imageFile.type,
+        },
       },
-    },
-  ]);
+    ]);
 
-  const classificationText = classificationResult.response.text();
-  const classificationMatch = classificationText.match(/\{[\s\S]*\}/);
-  
-  if (!classificationMatch) {
-    throw new Error('Classification failed');
+    const classificationText = classificationResult.response.text();
+    const classificationMatch = classificationText.match(/\{[\s\S]*\}/);
+    
+    if (!classificationMatch) {
+      throw new Error('Classification failed');
+    }
+
+    const classification = JSON.parse(classificationMatch[0]);
+    
+    let result: AnalysisResult;
+
+    // If it's food with high confidence, analyze nutrition
+    if (classification.isFood && classification.confidence > 60) {
+      result = await analyzeFoodNutrition(imageFile, base64Data, model);
+    } else {
+      // If it's not food, generate haiku
+      result = await generateHaiku(imageFile, base64Data, model);
+    }
+
+    return new Response(
+      JSON.stringify(result),
+      { 
+        status: 200, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
+    );
+
+  } catch (error) {
+    console.error('API Error:', error);
+    return new Response(
+      JSON.stringify({ error: 'Image analysis failed' }),
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
+    );
   }
-
-  const classification = JSON.parse(classificationMatch[0]);
-  
-  // If it's food with high confidence, analyze nutrition
-  if (classification.isFood && classification.confidence > 60) {
-    return await analyzeFoodNutrition(imageFile, base64Data, model);
-  } else {
-    // If it's not food, generate haiku
-    return await generateHaiku(imageFile, base64Data, model);
-  }
-};
-
-const convertFileToBase64 = (file: File): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(',')[1]); // Remove data:image/jpeg;base64, prefix
-    };
-    reader.onerror = error => reject(error);
-  });
 };
 
 const analyzeFoodNutrition = async (imageFile: File, base64Data: string, model: any): Promise<NutritionData> => {
@@ -223,6 +233,3 @@ const generateHaiku = async (imageFile: File, base64Data: string, model: any): P
 
   return haikuData;
 };
-
-// Keep the old function name for backward compatibility
-export const analyzeFood = analyzeImage;
