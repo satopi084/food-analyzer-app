@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import ImageUpload from './components/ImageUpload';
 import NutritionDisplay from './components/NutritionDisplay';
+import HaikuDisplay from './components/HaikuDisplay';
+import { AnalysisResult, HaikuData } from './services/geminiService';
 import './App.css';
 
 export interface NutritionData {
@@ -16,17 +18,21 @@ export interface NutritionData {
 }
 
 function App() {
-  const [nutritionData, setNutritionData] = useState<NutritionData | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleAnalysisComplete = (data: NutritionData) => {
-    setNutritionData(data);
+  const handleAnalysisComplete = (data: AnalysisResult) => {
+    setAnalysisResult(data);
     setLoading(false);
   };
 
   const handleAnalysisStart = () => {
     setLoading(true);
-    setNutritionData(null);
+    setAnalysisResult(null);
+  };
+
+  const isHaikuData = (data: AnalysisResult): data is HaikuData => {
+    return 'isFood' in data && data.isFood === false;
   };
 
   return (
@@ -34,6 +40,7 @@ function App() {
       <header className="App-header">
         <h1>🍽️ 食品栄養分析アプリ</h1>
         <p>料理の写真をアップロードして栄養価を分析しましょう</p>
+        <p className="sub-note">※料理以外の画像では俳句を作成します</p>
       </header>
       
       <main className="App-main">
@@ -49,8 +56,12 @@ function App() {
           </div>
         )}
         
-        {nutritionData && !loading && (
-          <NutritionDisplay data={nutritionData} />
+        {analysisResult && !loading && (
+          isHaikuData(analysisResult) ? (
+            <HaikuDisplay data={analysisResult} />
+          ) : (
+            <NutritionDisplay data={analysisResult as NutritionData} />
+          )
         )}
       </main>
     </div>

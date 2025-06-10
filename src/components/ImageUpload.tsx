@@ -1,11 +1,10 @@
 import React, { useRef, useState } from 'react';
-import { analyzeFood } from '../services/geminiService';
-import { NutritionData } from '../App';
+import { analyzeImage, AnalysisResult } from '../services/geminiService';
 import './ImageUpload.css';
 
 interface ImageUploadProps {
   onAnalysisStart: () => void;
-  onAnalysisComplete: (data: NutritionData) => void;
+  onAnalysisComplete: (data: AnalysisResult) => void;
 }
 
 const ImageUpload: React.FC<ImageUploadProps> = ({ onAnalysisStart, onAnalysisComplete }) => {
@@ -23,7 +22,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ onAnalysisStart, onAnalysisCo
     onAnalysisStart();
 
     try {
-      const result = await analyzeFood(file);
+      const result = await analyzeImage(file);
       onAnalysisComplete(result);
     } catch (error) {
       console.error('分析エラー:', error);
@@ -81,8 +80,8 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ onAnalysisStart, onAnalysisCo
         ) : (
           <div className="upload-prompt">
             <div className="upload-icon">📷</div>
-            <h3>料理の写真をアップロード</h3>
-            <p>ここに画像をドラッグ&ドロップするか、クリックしてファイルを選択してください</p>
+            <h3>画像をアップロード</h3>
+            <p>料理の写真なら栄養分析、その他の画像なら俳句を作成します</p>
             <button onClick={onButtonClick} className="upload-btn">
               ファイルを選択
             </button>
