@@ -39,7 +39,7 @@ function App() {
     <div className="App">
       <header className="App-header">
         <h1>🍽️ 食品栄養分析アプリ</h1>
-        <p>料理の写真をアップロードして栄養価を分析しましょう</p>
+        <p>毎日の食卓に栄養価の分析を</p>
         <p className="sub-note">※料理以外の画像では風流に返します</p>
       </header>
       
